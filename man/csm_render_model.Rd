@@ -8,7 +8,7 @@ csm_render_model(
   model,
   name = "dy_dt",
   output_type = c("function", "code"),
-  language = c("R", "Rcpp"),
+  language = c("R", "Rcpp", "Stan"),
   arg_alias = NULL,
   insert_functions = NULL
 )

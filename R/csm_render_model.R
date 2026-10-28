@@ -68,12 +68,32 @@ csm_render_model <- function(
     model,
     name = "dy_dt",
     output_type = c("function", "code"),
-    language = c("R", "Rcpp"),
+    language = c("R", "Rcpp", "Stan"),
     arg_alias = NULL,
     insert_functions = NULL){
 
+  if(!is.null(insert_functions)){
+    if_check <-
+      lapply(insert_functions, is.character) |>
+      unlist() |>
+      all()
+
+    if(!if_check){
+      stop("Currently all elements of the insert_functions argument must be",
+           " specified as character vectors with source code for the functions")
+    }
+  }
+
   output_type <- match.arg(output_type)
   language <- match.arg(language)
+
+  if(language == "Stan" & output_type == "function"){
+    c("csm_render_model() cannot render model as a function in Stan",
+      "The output_type will be set to \"code\".") |>
+      paste0(collapse = "\n") |>
+      warning()
+    output_type <- "code"
+  }
 
   if(language == "Rcpp" &
      !requireNamespace("Rcpp", quietly = TRUE)){
@@ -113,6 +133,16 @@ csm_render_model <- function(
     declare_v_type <- FALSE
     v_types = c(scalar = "",
                 vector = "")
+  }else if(language == "Stan"){
+    comment_char <- "//"
+    line_end <- ";"
+    assign_op <- "="
+    l_bracket <- "["
+    r_bracket <- "]"
+    vector_base_adj <- 0
+    declare_v_type <- TRUE
+    v_types = c(scalar = "real",
+                array = "vector")
   }
 
   arg_names <- c(
@@ -125,13 +155,25 @@ csm_render_model <- function(
   arg_regex <- paste0("^", names(arg_alias), "$")
   for(i in seq_along(arg_alias)){
     arg_names <- gsub(arg_regex[i], arg_alias[i], arg_names)
+    if("input_variables" %in% names(model)){
+      names(model[["input_variables"]]) <-
+        gsub(arg_regex[i],
+             arg_alias[i],
+             names(model[["input_variables"]]))
+    }
+    if("data_structures" %in% names(model)){
+      names(model[["data_structures"]]) <-
+        gsub(arg_regex[i],
+             arg_alias[i],
+             names(model[["data_structures"]]))
+    }
   }
 
   # State variables
 
   state <- model$state_variables
 
-  state_type <- get_v_type(state, v_types = v_types)
+  state_type <- v_types["array"]
 
   state_names <- names(model$state_variables)
 
@@ -147,9 +189,9 @@ csm_render_model <- function(
     state_arg <- arg_names["state_variables"]
   }else{
     if(state_type %in% c("array", "vector")){
-      dstate_dt <- paste0(state_type, l_bracket, length(state), r_bracket, " d", state_names, "_dt", line_end)
+      dstate_dt <- paste0(state_type, l_bracket, length(state), r_bracket, " d", arg_names["state_variables"], "_dt", line_end)
     }else{
-      dstate_dt <- paste0(state_type," d", state_names, "_dt", line_end)
+      dstate_dt <- paste0(state_type," d", arg_names["state_variables"], "_dt", line_end)
     }
     state_arg <- paste0(state_type, " ", state_names, line_end)
   }
@@ -169,15 +211,26 @@ csm_render_model <- function(
   }else{
     dydt_dots <- get_dydt_dots(dots_list, arg_names, comment_char,
                                v_types, line_end, vector_base_adj,
-                               declare_v_type)
+                               declare_v_type, language)
   }
 
   if(language == "Rcpp"){
     dydt_args <-
-      ifelse(arg_names %in% names(model$data_structures),
-             "DataFrame",
-             "NumericVector") |>
-      paste0(" ", arg_names) |>
+      paste0("NumericVector ", arg_names) |>
+      paste0(collapse = ", ")
+  }else if(language == "Stan"){
+    dydt_args <- character(length(arg_names))
+    for(i in seq_along(dydt_args)){
+      if(arg_names[i] %in% names(model$data_structures)){
+        n_dim <- model[["data_structures"]][[arg_names[i]]] |>
+          attr("n_dim")
+        dydt_args[i] <- rep(",", n_dim - 1) |>
+          paste0("array [", x = _, "] real ", arg_names[i])
+      }else{
+        dydt_args[i] <- paste0("vector ", arg_names[i])
+      }
+    }
+    dydt_args <- dydt_args |>
       paste0(collapse = ", ")
   }else{
     dydt_args <- paste0(arg_names, collapse = ", ")
@@ -185,6 +238,8 @@ csm_render_model <- function(
 
   if(language == "Rcpp"){
     dydt_signature <- paste0("List ", name, "(NumericVector t, ", dydt_args, ")")
+  }else if(language == "Stan"){
+    dydt_signature <- paste0("vector ", name, "(real t, ", dydt_args, ")")
   }else{
     dydt_signature <- paste0("function(t, ", dydt_args, ")")
   }
@@ -238,15 +293,6 @@ csm_render_model <- function(
     ""
   )
 
-  if(language == "Rcpp"){
-    dydt_output <-
-      c("#include <Rcpp.h>",
-        "using namespace Rcpp;",
-        "",
-        "// [[Rcpp::export]]",
-        dydt_output)
-  }
-
   if(output_type == "function" &
      language == "R"){
     dydt_output <-
@@ -255,7 +301,21 @@ csm_render_model <- function(
   }else if(output_type == "function" &
            language == "Rcpp" &
            requireNamespace("Rcpp", quietly = TRUE)){
-    Rcpp::sourceCpp(code = dydt_output)
+    if(is.null(insert_functions)) insert_functions <- character()
+    dydt_output <-
+      dydt_output |>
+      paste0(collapse = "\n") |>
+      Rcpp::cppFunction(code = _,
+                        includes = unlist(insert_functions))
+  }else if(output_type == "code" &
+           language == "Rcpp"){
+    dydt_output <-
+      c("#include <Rcpp.h>",
+        "using namespace Rcpp;",
+        "",
+        unlist(insert_functions),
+        "// [[Rcpp::export]]",
+        dydt_output)
   }
 
   return(dydt_output)
@@ -324,10 +384,11 @@ get_dots_args <- function(dots_list, arg_names, v_types = NULL){
 
 get_v_type <- function(.v,
                        v_types = c(scalar = "scalar",
-                                   array = "array")){
+                                   array = "array"),
+                       language){
   if(is.null(v_types)){
     return("")
-  }else if(length(.v) == 1){
+  }else if(length(.v) == 1 & language == "R"){
     return(v_types["scalar"])
   }else{
     return(v_types["array"])
@@ -347,7 +408,7 @@ get_arg_name <- function(.i, .v_list, arg_names){
 
 get_declaration <- function(.d, dots_list, arg_names, v_types,
                             line_end, comment_char, v_base_adj,
-                            declare_v_type){
+                            declare_v_type, language){
 
   if(is_data_structure(dots_list[[.d]])){
 
@@ -355,28 +416,42 @@ get_declaration <- function(.d, dots_list, arg_names, v_types,
 
     .n_dim <- attr(dots_list[[.d]], "n_dim")
 
-    v_indices <-
-      {seq_along(.v) + v_base_adj} |>
-      paste0(rep(",", .n_dim - 1), x = _)
+    .name <- get_arg_name(.d, dots_list, arg_names)
+
+    if(.n_dim > 1){
+      start <- paste0("(",1 + v_base_adj," + ",.name,"_b_sz*", seq_along(.v) - 1, ")")
+      end <- paste0("(",.name,"_b_sz*", seq_along(.v), "+", v_base_adj,")")
+      if(language == "R"){
+        header <- paste0(.name, "_b_sz <- length(", .name, ")/",length(.v), "\n")
+        v_indices <- paste0(start, ":", end)
+      }else if(language == "Rcpp"){
+        header <- paste0("int ", .name,"_b_sz = ", .name, ".size()/",length(.v),";\n")
+        v_indices <- paste0("Range(", start, ", ", end, ")")
+      }
+    }else{
+      header <- NULL
+      v_indices <- paste0(seq_along(.v) + v_base_adj)
+    }
 
     mapply(dydt_declaration,
            .i = v_indices,
            .name = names(.v),
            .var = .v,
-           .var_type = v_types["array"],
-           .in = get_arg_name(.d, dots_list, arg_names),
+           .var_type = if(.n_dim == 1) v_types["scalar"] else v_types["array"],
+           .in = .name,
            .in_type = v_types["array"],
            .comment_char = comment_char,
            .line_end = line_end,
            declare_v_type = declare_v_type,
            SIMPLIFY = FALSE) |>
-      lapply(paste0, collapse = "\n")
+      lapply(paste0, collapse = "\n") |>
+      c(list(header), x = _)
 
   }else{
 
     .d_name <- get_arg_name(.d, dots_list, arg_names)
 
-    .d_type <- get_v_type(dots_list[[.d]], v_types)
+    .d_type <- get_v_type(dots_list[[.d]], v_types, language)
 
     d_indices <- seq_along(dots_list[[.d]]) + v_base_adj
 
@@ -402,7 +477,7 @@ is_csm_parameter <- function(.v){
 
 get_dydt_dots <- function(dots_list, arg_names, comment_char = "#",
                           v_types, line_end, v_base_adj,
-                          declare_v_type){
+                          declare_v_type, language){
 
   dots_declaration <-
     1:length(dots_list) |>
@@ -413,7 +488,8 @@ get_dydt_dots <- function(dots_list, arg_names, comment_char = "#",
            comment_char = comment_char,
            line_end = line_end,
            v_base_adj = v_base_adj,
-           declare_v_type = declare_v_type)
+           declare_v_type = declare_v_type,
+           language = language)
 
   dots_is_parameter <-
     dots_list |>
@@ -477,6 +553,8 @@ code_return <- function(return_variable, language){
     return_code <- paste0("return(list(", return_variable, "))")
   }else if(language == "Rcpp"){
     return_code <- paste0("return List::create(", return_variable, ")")
+  }else if(language == "Stan"){
+    return_code <- paste0("return ", return_variable)
   }else{
     return_code <- return_variable
   }
