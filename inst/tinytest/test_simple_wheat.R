@@ -1,4 +1,5 @@
 library(tinytest)
+library(csmbuilder)
 
 #################################
 # Simple Wheat Model Test Example
@@ -29,8 +30,8 @@ parameters <-
 # Rate equation function
 swheat_ref_dt <- function(t, state, parms, wth){
   with(as.list(c(state, parms)), {
-    Tavg <- csmbuilder::csm_get_at_t(wth[,2], wth[,1], t, "linear")
-    SRAD <- csmbuilder::csm_get_at_t(wth[,3], wth[,1], t, "linear")
+    Tavg <- csm_get_at_t(wth[,2], wth[,1], t)
+    SRAD <- csm_get_at_t(wth[,3], wth[,1], t)
     c(
       # dTT:
       (Tavg - Tbase)*sig(Tavg+273.15, Tbase+273.15),
@@ -99,7 +100,7 @@ expect_equal(
 )
 
 # Specify times at which to report output
-times <- csmbuilder::csm_time_vector(0, nrow(wth)-1, dt = 0.01)
+times <- csm_time_vector(0, nrow(wth)-1, dt = 0.01)
 
 # Create list of integration methods to test:
 integ_list <- c("euler", "rk4")
@@ -127,43 +128,43 @@ swheat_ref_out <-
 # Define parameters
 swheat_parameters <- c(
 
-  csmbuilder::csm_create_parameter(
+  csm_create_parameter(
     name = "Tbase",
     definition = "base temperature",
     units = "degree C",
     lower_bound = -273.15),
 
-  csmbuilder::csm_create_parameter(
+  csm_create_parameter(
     name = "alpha",
     definition = "relative rate of leaf area expansion",
     units = "per degree C",
     lower_bound = 0),
 
-  csmbuilder::csm_create_parameter(
+  csm_create_parameter(
     name = "K",
     definition = "light extinction coefficient",
     units = "unitless",
     lower_bound = 0),
 
-  csmbuilder::csm_create_parameter(
+  csm_create_parameter(
     name = "TTL",
     definition = "thermal time to end of leaf expansion",
     units = "degree C",
     lower_bound = 0),
 
-  csmbuilder::csm_create_parameter(
+  csm_create_parameter(
     name = "senrate",
     definition = "relative rate of leaf senescence",
     units = "per degree C",
     lower_bound = 0),
 
-  csmbuilder::csm_create_parameter(
+  csm_create_parameter(
     name = "RUE",
     definition = "radiation use efficiency",
     units = "g per MJ",
     lower_bound = 0),
 
-  csmbuilder::csm_create_parameter(
+  csm_create_parameter(
     name = "TTM",
     definition = "thermal time to physiological maturity",
     units = "degree C",
@@ -172,24 +173,24 @@ swheat_parameters <- c(
 
 # Define weather inputs
 wth_in <- c(
-  csmbuilder::csm_create_variable(
+  csm_create_variable(
     name = "wtime",
     definition = "time of weather observation",
     units = "days after planting"),
 
-  csmbuilder::csm_create_variable(
+  csm_create_variable(
     name = "Tair",
     definition = "air temperature at time t",
     units = "degree C"),
 
-  csmbuilder::csm_create_variable(
+  csm_create_variable(
     name = "SRAD",
     definition = "solar radiation",
     units = "MJ m^{-2} d^{-1}")
 
 )
 
-swheat_wth <- csmbuilder::csm_create_data_structure(
+swheat_wth <- csm_create_data_structure(
   "wth",
   definition = "weather data",
   variables = wth_in,
@@ -197,24 +198,24 @@ swheat_wth <- csmbuilder::csm_create_data_structure(
 )
 
 swheat_wth_t <- c(
-  csmbuilder::csm_create_transform(
+  csm_create_transform(
     name = "Tair_t",
     definition = "air temperature at t",
     units = "degrees Celsius",
-    equation = ~csmbuilder::csm_get_at_t(Tair, wtime, t, "linear")),
+    equation = ~csm_get_at_t(Tair, wtime, t)),
 
-  csmbuilder::csm_create_transform(
+  csm_create_transform(
     name = "SRAD_t",
     definition = "solar radiation at t",
     units = "MJ m^{-2} d^{-1}",
-    equation = ~csmbuilder::csm_get_at_t(SRAD, wtime, t, "linear"))
+    equation = ~csm_get_at_t(SRAD, wtime, t))
 )
 
 
 # Define intermediate factors
 swheat_intermediate <- c(
 
-  csmbuilder::csm_create_transform(
+  csm_create_transform(
     name = "f_tt",
     definition = "thermal time factor",
     units = "degree C",
@@ -224,20 +225,20 @@ swheat_intermediate <- c(
 # Define state variables
 swheat_state <- c(
 
-  csmbuilder::csm_create_state(
+  csm_create_state(
     name = "TT",
     definition = "cumulative thermal time",
     units = "degree C",
     ~f_tt),
 
-  csmbuilder::csm_create_state(
+  csm_create_state(
     name = "LAI",
     definition = "leaf area index",
     units = "leaf area m^{2} ground area m^{-2}",
     ~f_tt*alpha*LAI*exp(-K*LAI)*(1-1/(1+exp(-100*(TT/TTL-1)))) -
       LAI*senrate*f_tt*(1/(1+exp(-100*(TT/TTL-1))))),
 
-  csmbuilder::csm_create_state(
+  csm_create_state(
     name = "biomass",
     definition = "biomass",
     units = "g m^{-2}",
@@ -246,7 +247,7 @@ swheat_state <- c(
 )
 
 swheat_model <-
-  csmbuilder::csm_create_model(
+  csm_create_model(
     name = "swheat_dydt",
     state = swheat_state,
     prm = swheat_parameters,
@@ -254,20 +255,70 @@ swheat_model <-
     wth_t = swheat_wth_t,
     f_inter = swheat_intermediate)
 
-swheat_dydt <- csmbuilder::csm_render_model(
+swheat_dydt <- csm_render_model(
     model = swheat_model,
     arg_alias = c(state_variables = "state"),
     output_type = "function",
     language = "R"
   )
 
+swheat_Rcpp <- csm_render_model(
+  model = swheat_model,
+  arg_alias = c(state_variables = "state"),
+  output_type = "function",
+  language = "Rcpp",
+  insert_functions = list(
+    csm_get_at_t = c("double csm_get_at_t(NumericVector x, NumericVector t_ind,",
+                     "NumericVector t) ",
+                     "{",
+                     "      int i = 0;",
+                     "      int j = t_ind.size() - 1;",
+                     "      while(i < j && (i + 1) != j){",
+                     "        if(t_ind[i] > t[0]) i = 0;",
+                     "        if(t_ind[j] < t[0]) j = t_ind.size() - 1;",
+                     "        double m = (j - i)/(t_ind[j] - t_ind[i]);",
+                     "        double b = j - m*t_ind[j];",
+                     "        double ij = m*t[0]+b;",
+                     "        i = std::floor(ij);",
+                     "        if(t_ind[i] == t[0]) return x[i];",
+                     "        j = std::ceil(ij);",
+                     "      }",
+                     "  if(t_ind[i] == t[0]){",
+                     "    return x[i];",
+                     "  }else{",
+                     "    return x[i]*(t_ind[j]-t[0]) + x[j]*(t[0]-t_ind[i])/(t_ind[j] - t_ind[i]);",
+                     "  }",
+                     "}"),
+    csm_mod_arr = c("double csm_mod_arr(double Tt, double ko, double H,",
+                    "                   double E, double To)",
+                    "{",
+                    "    double R = 8.314;",
+                    "    return ko * (H * exp(E/R * (1/(To + 273.15) - 1/(Tt + 273.15))))/(H - ",
+                    "        E * (1 - exp(H/R * (1/(To + 273.15) - 1/(Tt + 273.15)))));",
+                    "}")
+  ))
+
 # Run integration
 swheat_dydt_out <-
   integ_list |>
   (\(.x) setNames(.x, .x))() |>
   lapply(\(.method){
-    csmbuilder::csm_run_sim(
+    csm_run_sim(
       model_function = swheat_dydt,
+      y_init = state,
+      t = times,
+      parms = parameters,
+      wth = wth,
+      method = .method
+    )
+  })
+
+swheat_Rcpp_out <-
+  integ_list |>
+  (\(.x) setNames(.x, .x))() |>
+  lapply(\(.method){
+    csm_run_sim(
+      model_function = swheat_Rcpp,
       y_init = state,
       t = times,
       parms = parameters,
@@ -279,6 +330,14 @@ swheat_dydt_out <-
 for(integ_method in integ_list){
   expect_equal(
     current = swheat_dydt_out[[integ_method]],
+    target = swheat_ref_out[[integ_method]],
+    info = integ_method
+  )
+}
+
+for(integ_method in integ_list){
+  expect_equal(
+    current = swheat_Rcpp_out[[integ_method]],
     target = swheat_ref_out[[integ_method]],
     info = integ_method
   )

@@ -81,6 +81,11 @@ lotka_volt_dydt <- csmbuilder::csm_render_model(lotka_volt_model,
                                                   output_type = "function",
                                                   language = "R")
 
+# Create function for calculating rates
+lotka_volt_Rcpp <- csmbuilder::csm_render_model(lotka_volt_model,
+                                                output_type = "function",
+                                                language = "Rcpp")
+
 # Run integration
 lotka_volt_dydt_out <-
   integ_list |>
@@ -95,9 +100,31 @@ lotka_volt_dydt_out <-
     )
   })
 
+# Run integration
+lotka_volt_Rcpp_out <-
+  integ_list |>
+  (\(.x) setNames(.x, .x))() |>
+  lapply(\(.method){
+    csmbuilder::csm_run_sim(
+      model_function = lotka_volt_Rcpp,
+      y_init = state,
+      t = times,
+      parms = parameters,
+      method = .method
+    )
+  })
+
 for(integ_method in integ_list){
   expect_equal(
     current = lotka_volt_dydt_out[[integ_method]],
+    target = lotka_volt_ref_out[[integ_method]],
+    info = integ_method
+  )
+}
+
+for(integ_method in integ_list){
+  expect_equal(
+    current = lotka_volt_Rcpp_out[[integ_method]],
     target = lotka_volt_ref_out[[integ_method]],
     info = integ_method
   )

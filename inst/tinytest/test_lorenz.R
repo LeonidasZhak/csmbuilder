@@ -79,6 +79,14 @@ Lorenz_dydt <-
     output_type = "function",
     language = "R")
 
+# Create function for calculating rates
+Lorenz_Rcpp <-
+  csmbuilder::csm_render_model(
+    model = lorenz_model,
+    arg_alias = c(parameters = "parms"),
+    output_type = "function",
+    language = "Rcpp")
+
 # Run integration
 Lorenz_dydt_out <-
   integ_list |>
@@ -93,10 +101,34 @@ Lorenz_dydt_out <-
     )
   })
 
+# Run integration
+Lorenz_Rcpp_out <-
+  integ_list |>
+  (\(.x) setNames(.x, .x))() |>
+  lapply(\(.method){
+    csmbuilder::csm_run_sim(
+      model_function = Lorenz_Rcpp,
+      y_init = state,
+      t = times,
+      parms = parameters,
+      method = .method
+    )
+  })
+
+# test Lorenz_dydt_out
 for(integ_method in integ_list){
   expect_equal(
     current = Lorenz_dydt_out[[integ_method]],
     target = Lorenz_ref_out[[integ_method]],
     info = integ_method
     )
+}
+
+# test Lorenz_Rcpp_out
+for(integ_method in integ_list){
+  expect_equal(
+    current = Lorenz_Rcpp_out[[integ_method]],
+    target = Lorenz_ref_out[[integ_method]],
+    info = integ_method
+  )
 }

@@ -1,4 +1,5 @@
 library(tinytest)
+library(csmbuilder)
 
 ###########################################
 # Bare Soil Water Balance Model Test Example
@@ -131,8 +132,8 @@ parameters <-
 # Rate equation function
 dsw_dt <- function(t, state, parms, wth, soil){
   with(as.list(c(state, parms)), {
-    ETo_t <- csmbuilder::csm_get_at_t(wth[, "ETo"], wth[, "time"], t, "linear")
-    P_t <- csmbuilder::csm_get_at_t(wth[, "P"], wth[, "time"], t, "linear")
+    ETo_t <- csm_get_at_t(wth[, "ETo"], wth[, "time"], t)
+    P_t <- csm_get_at_t(wth[, "P"], wth[, "time"], t)
     fi <- 1 - 1/(1+exp(-log(99)/(soil["sw_fc"] - (soil["sw_fc"]*3 + soil["sw_pwp"])/4)*(sw - (soil["sw_fc"]*7/8+soil["sw_pwp"]/8))))
     fe <- 1/(1+exp(-log(99)/(soil["sw_rew"] - soil["sw_tew"])*(sw - soil["sw_rew"])))
     list(
@@ -159,7 +160,7 @@ expect_equal(
 )
 
 # Specify times at which to report output
-times <- csmbuilder::csm_time_vector(0, nrow(wth)-1, dt = 0.01)
+times <- csm_time_vector(0, nrow(wth)-1, dt = 0.01)
 
 # Create list of integration methods to test:
 integ_list <- c("euler", "rk4")
@@ -186,36 +187,36 @@ sw_ref_out <-
 ##########################################################
 
 # Define state variables
-sw_state <- csmbuilder::csm_create_state(
+sw_state <- csm_create_state(
   "sw",
   definition = "soil water",
   units = "mm",
   expression(~P_t*fi-ETo_t*Ke*fe))
 
 # Define parameters
-sw_parameters <- csmbuilder::csm_create_parameter(
+sw_parameters <- csm_create_parameter(
   "Ke",
   definition = "soil evaporation coefficient",
   units = "unitless")
 
 # Define soil inputs
 sw_soil_vars <- c(
-  csmbuilder::csm_create_variable(
+  csm_create_variable(
     "sw_fc",
     definition = "soil water at field capacity",
     units = "mm"),
 
-  csmbuilder::csm_create_variable(
+  csm_create_variable(
     "sw_pwp",
     definition = "soil water at permanent wilting point",
     units = "mm"),
 
-  csmbuilder::csm_create_variable(
+  csm_create_variable(
     "sw_rew",
     definition = "soil water at limit of readily extractable water",
     units = "mm"),
 
-  csmbuilder::csm_create_variable(
+  csm_create_variable(
     "sw_tew",
     definition = "soil water at limit of total extractable water",
     units = "mm")
@@ -223,17 +224,17 @@ sw_soil_vars <- c(
 
 # Define weather variables
 sw_wth_vars <- c(
-  csmbuilder::csm_create_variable(
+  csm_create_variable(
     "wtime",
     definition = "time of observation",
     units = "days after planting"),
 
-  csmbuilder::csm_create_variable(
+  csm_create_variable(
     "ETo",
     definition = "reference evapotranspiration",
     units = "mm"),
 
-  csmbuilder::csm_create_variable(
+  csm_create_variable(
     "P",
     definition = "precipitation",
     units = "mm")
@@ -241,12 +242,12 @@ sw_wth_vars <- c(
 
 # Define input data structures
 sw_inputs <- c(
-  csmbuilder::csm_create_data_structure(
+  csm_create_data_structure(
     "soil_data",
     definition = "soil data",
     variables = sw_soil_vars
   ),
-  csmbuilder::csm_create_data_structure(
+  csm_create_data_structure(
     "wth_data",
     definition = "weather data",
     variables = sw_wth_vars,
@@ -255,27 +256,27 @@ sw_inputs <- c(
 )
 
 sw_wth_t <- c(
-  csmbuilder::csm_create_transform(
+  csm_create_transform(
     "ETo_t",
     definition = "reference evapotranspiration at t",
     units = "mm",
-    equation = ~csm_get_at_t(ETo, wtime, t, "linear")),
+    equation = ~csm_get_at_t(ETo, wtime, t)),
 
-  csmbuilder::csm_create_transform(
+  csm_create_transform(
     "P_t",
     definition = "precipitation at t",
     units = "mm",
-    equation = ~csm_get_at_t(P, wtime, t, "linear"))
+    equation = ~csm_get_at_t(P, wtime, t))
 )
 
 # Define intermediate factors
 sw_factors <- c(
-  csmbuilder::csm_create_transform(
+  csm_create_transform(
     "fi",
     definition = "infiltration factor",
   units = "unitless",
   equation = ~1 - 1/(1+exp(-log(99)/(sw_fc - (sw_fc*3 + sw_pwp)/4)*(sw - (sw_fc*7/8+sw_pwp/8))))),
-  csmbuilder::csm_create_transform(
+  csm_create_transform(
     "fe",
     definition = "evaporation factor",
     units = "unitless",
@@ -284,15 +285,15 @@ sw_factors <- c(
 
 # Create model object
 sw_model <-
-  csmbuilder::csm_create_model(sw_state,
-                                 sw_parameters,
-                                 sw_factors,
-                                 sw_inputs,
-                                 sw_wth_t)
+  csm_create_model(sw_state,
+                   sw_parameters,
+                   sw_factors,
+                   sw_inputs,
+                   sw_wth_t)
 
 # Create function for calculating rates
 sw_dydt <-
-  csmbuilder::csm_render_model(
+  csm_render_model(
     name = "sw",
     model = sw_model,
     arg_alias = c(state_variables = "state",
@@ -301,13 +302,68 @@ sw_dydt <-
     output_type = "function",
     language = "R")
 
+sw_Rcpp <-
+  csm_render_model(
+    name = "sw",
+    model = sw_model,
+    arg_alias = c(state_variables = "state",
+                  soil_data = "soil",
+                  wth_data = "wth"),
+    output_type = "function",
+    language = "Rcpp",
+    insert_functions = list(
+      csm_get_at_t = c("double csm_get_at_t(NumericVector x, NumericVector t_ind,",
+                       "NumericVector t) ",
+                       "{",
+                       "      int i = 0;",
+                       "      int j = t_ind.size() - 1;",
+                       "      while(i < j && (i + 1) != j){",
+                       "        if(t_ind[i] > t[0]) i = 0;",
+                       "        if(t_ind[j] < t[0]) j = t_ind.size() - 1;",
+                       "        double m = (j - i)/(t_ind[j] - t_ind[i]);",
+                       "        double b = j - m*t_ind[j];",
+                       "        double ij = m*t[0]+b;",
+                       "        i = std::floor(ij);",
+                       "        if(t_ind[i] == t[0]) return x[i];",
+                       "        j = std::ceil(ij);",
+                       "      }",
+                       "  if(t_ind[i] == t[0]){",
+                       "    return x[i];",
+                       "  }else{",
+                       "    return x[i]*(t_ind[j]-t[0]) + x[j]*(t[0]-t_ind[i])/(t_ind[j] - t_ind[i]);",
+                       "  }",
+                       "}"),
+      csm_mod_arr = c("double csm_mod_arr(double Tt, double ko, double H,",
+                      "                   double E, double To)",
+                      "{",
+                      "    double R = 8.314;",
+                      "    return ko * (H * exp(E/R * (1/(To + 273.15) - 1/(Tt + 273.15))))/(H - ",
+                      "        E * (1 - exp(H/R * (1/(To + 273.15) - 1/(Tt + 273.15)))));",
+                      "}")
+    ))
+
 # Run integration
 sw_dydt_out <-
   integ_list |>
   (\(.x) setNames(.x, .x))() |>
   lapply(\(.method){
-    csmbuilder::csm_run_sim(
+    csm_run_sim(
       model_function = sw_dydt,
+      y_init = state,
+      t = times,
+      parms = parameters,
+      wth = wth,
+      soil = soil,
+      method = .method
+    )
+  })
+
+sw_Rcpp_out <-
+  integ_list |>
+  (\(.x) setNames(.x, .x))() |>
+  lapply(\(.method){
+    csm_run_sim(
+      model_function = sw_Rcpp,
       y_init = state,
       t = times,
       parms = parameters,
@@ -325,3 +381,10 @@ for(integ_method in integ_list){
   )
 }
 
+for(integ_method in integ_list){
+  expect_equal(
+    current = sw_Rcpp_out[[integ_method]],
+    target = sw_ref_out[[integ_method]],
+    info = integ_method
+  )
+}
