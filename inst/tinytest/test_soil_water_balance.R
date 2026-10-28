@@ -177,7 +177,8 @@ sw_ref_out <-
       method = .method,
       wth = wth,
       soil = soil
-    )
+    ) |>
+      as.data.frame()
   })
 
 ##########################################################

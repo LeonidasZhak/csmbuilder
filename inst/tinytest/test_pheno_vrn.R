@@ -101,7 +101,8 @@ pheno_vrn_ref_out <-
       parms = parameters,
       method = .method,
       wth = wth
-    )
+    ) |>
+      as.data.frame()
   })
 
 #######################################################

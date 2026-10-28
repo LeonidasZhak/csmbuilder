@@ -45,7 +45,8 @@ lotka_volt_ref_out <-
       func = lotka_volt_ref_dt,
       parms = parameters,
       method = .method
-    )
+    ) |>
+      as.data.frame()
   })
 
 #########################################

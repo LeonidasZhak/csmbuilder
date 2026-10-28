@@ -116,7 +116,8 @@ swheat_ref_out <-
       parms = parameters,
       method = .method,
       wth = wth
-    )
+    ) |>
+      as.data.frame()
   })
 
 #############################################

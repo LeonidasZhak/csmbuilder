@@ -43,7 +43,8 @@ Lorenz_ref_out <-
       func = Lorenz_ref_dt,
       parms = parameters,
       method = .method
-    )
+    ) |>
+      as.data.frame()
   })
 
 #################################
